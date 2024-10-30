@@ -39,7 +39,18 @@ func main() {
 
 	if path == "/" {
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	} else if strings.HasPrefix(path, "/echo") {
+		echoHandler(conn, path)
 	} else {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
+}
+
+func echoHandler(conn net.Conn, path string) {
+	message := strings.Replace(path, "/echo/", "", 1)
+
+	conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
+	conn.Write([]byte("Content-Type: text/plain\r\n"))
+	conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
+	conn.Write([]byte(message))
 }
