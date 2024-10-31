@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"strings"
@@ -107,43 +106,37 @@ func echoHandler(conn net.Conn, request *HTTPProtocol) {
 func fileHandler(conn net.Conn, request *HTTPProtocol) error {
 	filename := strings.Replace(request.path, "/file/", "", 1)
 	filepath := fmt.Sprintf("./tmp/%s", filename)
-	file, fopenErr := os.Open(filepath)
 
-	if fopenErr != nil {
-		return fopenErr
+	file, err := os.Open(filepath)
+	if err != nil {
+		return err
 	}
-
 	defer file.Close()
 
-	size, seekErr := file.Seek(0, io.SeekEnd)
-
-	if seekErr != nil {
-		return seekErr
-	}
-	_, seekErr = file.Seek(0, io.SeekStart)
-
-	if seekErr != nil {
-		return seekErr
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return err
 	}
 
-	conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
-	conn.Write([]byte("Content-Type: application/octet-stream\r\n"))
-	conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", size)))
+	headers := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n", fileInfo.Size())
 
-	buffer := make([]byte, 10)
-	read, freadErr := file.Read(buffer)
-
-	if freadErr != nil {
-		return freadErr
+	if _, err := conn.Write([]byte(headers)); err != nil {
+		return err
 	}
 
-	conn.Write(buffer)
+	buffer := make([]byte, 1024)
 
-	for read > 0 {
-		read, freadErr = file.Read(buffer)
-		conn.Write(buffer)
-		if freadErr != nil {
-			return freadErr
+	for {
+		n, err := file.Read(buffer)
+
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		if _, err := conn.Write(buffer); err != nil {
+			return err
 		}
 	}
 
