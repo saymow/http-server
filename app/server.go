@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -52,6 +53,8 @@ func requestHanlder(conn net.Conn) {
 		echoHandler(conn, &protocol)
 	} else if strings.HasPrefix(protocol.path, "/user-agent") {
 		userAgentHandler(conn, &protocol)
+	} else if strings.HasPrefix(protocol.path, "/file") {
+		fileHandler(conn, &protocol)
 	} else {
 		notFoundHandler(conn, &protocol)
 	}
@@ -99,6 +102,54 @@ func echoHandler(conn net.Conn, request *HTTPProtocol) {
 	conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
 	conn.Write([]byte(message))
 	conn.Close()
+}
+
+func fileHandler(conn net.Conn, request *HTTPProtocol) error {
+	filename := strings.Replace(request.path, "/file/", "", 1)
+	filepath := fmt.Sprintf("./tmp/%s", filename)
+	file, fopenErr := os.Open(filepath)
+
+	if fopenErr != nil {
+		return fopenErr
+	}
+
+	defer file.Close()
+
+	size, seekErr := file.Seek(0, io.SeekEnd)
+
+	if seekErr != nil {
+		return seekErr
+	}
+	_, seekErr = file.Seek(0, io.SeekStart)
+
+	if seekErr != nil {
+		return seekErr
+	}
+
+	conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
+	conn.Write([]byte("Content-Type: application/octet-stream\r\n"))
+	conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", size)))
+
+	buffer := make([]byte, 10)
+	read, freadErr := file.Read(buffer)
+
+	if freadErr != nil {
+		return freadErr
+	}
+
+	conn.Write(buffer)
+
+	for read > 0 {
+		read, freadErr = file.Read(buffer)
+		conn.Write(buffer)
+		if freadErr != nil {
+			return freadErr
+		}
+	}
+
+	conn.Close()
+
+	return nil
 }
 
 func notFoundHandler(conn net.Conn, request *HTTPProtocol) {
