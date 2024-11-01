@@ -43,7 +43,7 @@ func requestHanlder(conn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	buffer = buffer[:bytes_read+1]
+	buffer = buffer[:bytes_read]
 
 	protocol := HTTPProtocol{
 		headers: make(map[string]string),
