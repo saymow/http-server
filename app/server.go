@@ -8,6 +8,7 @@ import (
 )
 
 type HTTPProtocol struct {
+	conn    net.Conn
 	version string
 	path    string
 	method  string
@@ -47,21 +48,22 @@ func requestHanlder(conn net.Conn) error {
 
 	protocol := HTTPProtocol{
 		headers: make(map[string]string),
+		conn:    conn,
 	}
 	parseProtocol(&protocol, buffer)
 
 	if protocol.path == "/" {
-		indexHandler(conn, &protocol)
+		indexHandler(&protocol)
 	} else if strings.HasPrefix(protocol.path, "/echo") {
-		echoHandler(conn, &protocol)
+		echoHandler(&protocol)
 	} else if strings.HasPrefix(protocol.path, "/user-agent") {
-		userAgentHandler(conn, &protocol)
+		userAgentHandler(&protocol)
 	} else if strings.HasPrefix(protocol.path, "/files") && protocol.method == "GET" {
-		getFileHandler(conn, &protocol)
+		getFileHandler(&protocol)
 	} else if strings.HasPrefix(protocol.path, "/files") && protocol.method == "POST" {
-		postFileHandler(conn, &protocol)
+		postFileHandler(&protocol)
 	} else {
-		notFoundHandler(conn, &protocol)
+		notFoundHandler(&protocol)
 	}
 
 	return nil
@@ -88,29 +90,29 @@ func parseProtocol(protocol *HTTPProtocol, requestBuffer []byte) {
 	}
 }
 
-func indexHandler(conn net.Conn, request *HTTPProtocol) {
-	conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+func indexHandler(request *HTTPProtocol) {
+	request.conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 }
 
-func userAgentHandler(conn net.Conn, request *HTTPProtocol) {
+func userAgentHandler(request *HTTPProtocol) {
 	message := request.headers["User-Agent"]
 
-	conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
-	conn.Write([]byte("Content-Type: text/plain\r\n"))
-	conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
-	conn.Write([]byte(message))
+	request.conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
+	request.conn.Write([]byte("Content-Type: text/plain\r\n"))
+	request.conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
+	request.conn.Write([]byte(message))
 }
 
-func echoHandler(conn net.Conn, request *HTTPProtocol) {
+func echoHandler(request *HTTPProtocol) {
 	message := strings.Replace(request.path, "/echo/", "", 1)
 
-	conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
-	conn.Write([]byte("Content-Type: text/plain\r\n"))
-	conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
-	conn.Write([]byte(message))
+	request.conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
+	request.conn.Write([]byte("Content-Type: text/plain\r\n"))
+	request.conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
+	request.conn.Write([]byte(message))
 }
 
-func getFileHandler(conn net.Conn, request *HTTPProtocol) error {
+func getFileHandler(request *HTTPProtocol) error {
 	FILES_DIR := os.Args[2]
 	filename := strings.Replace(request.path, "/files/", "", 1)
 	filepath := FILES_DIR + filename
@@ -118,7 +120,7 @@ func getFileHandler(conn net.Conn, request *HTTPProtocol) error {
 	file, err := os.Open(filepath)
 	if err != nil {
 		if _, ok := err.(*os.PathError); ok {
-			if _, err := conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n")); err != nil {
+			if _, err := request.conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n")); err != nil {
 				return err
 			}
 		}
@@ -134,7 +136,7 @@ func getFileHandler(conn net.Conn, request *HTTPProtocol) error {
 
 	headers := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n", fileInfo.Size())
 
-	if _, err := conn.Write([]byte(headers)); err != nil {
+	if _, err := request.conn.Write([]byte(headers)); err != nil {
 		return err
 	}
 
@@ -149,7 +151,7 @@ func getFileHandler(conn net.Conn, request *HTTPProtocol) error {
 		if n == 0 {
 			break
 		}
-		if _, err := conn.Write(buffer); err != nil {
+		if _, err := request.conn.Write(buffer); err != nil {
 			return err
 		}
 	}
@@ -157,7 +159,7 @@ func getFileHandler(conn net.Conn, request *HTTPProtocol) error {
 	return nil
 }
 
-func postFileHandler(conn net.Conn, request *HTTPProtocol) error {
+func postFileHandler(request *HTTPProtocol) error {
 	FILES_DIR := os.Args[2]
 	filename := strings.Replace(request.path, "/files/", "", 1)
 	filepath := FILES_DIR + filename
@@ -172,13 +174,13 @@ func postFileHandler(conn net.Conn, request *HTTPProtocol) error {
 		return err
 	}
 
-	if _, err := conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n")); err != nil {
+	if _, err := request.conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n")); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func notFoundHandler(conn net.Conn, request *HTTPProtocol) {
-	conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+func notFoundHandler(request *HTTPProtocol) {
+	request.conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 }
