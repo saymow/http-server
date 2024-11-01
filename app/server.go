@@ -8,7 +8,9 @@ import (
 )
 
 type HTTPProtocol struct {
+	version string
 	path    string
+	method  string
 	headers map[string]string
 	body    string
 }
@@ -33,11 +35,15 @@ func main() {
 	}
 }
 
-func requestHanlder(conn net.Conn) {
+func requestHanlder(conn net.Conn) error {
 	defer conn.Close()
 
 	buffer := make([]byte, 1024)
-	conn.Read(buffer)
+	bytes_read, err := conn.Read(buffer)
+	if err != nil {
+		return err
+	}
+	buffer = buffer[:bytes_read+1]
 
 	protocol := HTTPProtocol{
 		headers: make(map[string]string),
@@ -50,11 +56,15 @@ func requestHanlder(conn net.Conn) {
 		echoHandler(conn, &protocol)
 	} else if strings.HasPrefix(protocol.path, "/user-agent") {
 		userAgentHandler(conn, &protocol)
-	} else if strings.HasPrefix(protocol.path, "/files") {
-		fileHandler(conn, &protocol)
+	} else if strings.HasPrefix(protocol.path, "/files") && protocol.method == "GET" {
+		getFileHandler(conn, &protocol)
+	} else if strings.HasPrefix(protocol.path, "/files") && protocol.method == "POST" {
+		postFileHandler(conn, &protocol)
 	} else {
 		notFoundHandler(conn, &protocol)
 	}
+
+	return nil
 }
 
 func parseProtocol(protocol *HTTPProtocol, requestBuffer []byte) {
@@ -63,7 +73,9 @@ func parseProtocol(protocol *HTTPProtocol, requestBuffer []byte) {
 	target := strings.Split(parts[0], " ")
 	idx := 1
 
+	protocol.method = target[0]
 	protocol.path = target[1]
+	protocol.version = target[2]
 	for ; parts[idx] != ""; idx++ {
 		header := strings.Split(parts[idx], ": ")
 		protocol.headers[header[0]] = header[1]
@@ -98,7 +110,7 @@ func echoHandler(conn net.Conn, request *HTTPProtocol) {
 	conn.Write([]byte(message))
 }
 
-func fileHandler(conn net.Conn, request *HTTPProtocol) error {
+func getFileHandler(conn net.Conn, request *HTTPProtocol) error {
 	FILES_DIR := os.Args[2]
 	filename := strings.Replace(request.path, "/files/", "", 1)
 	filepath := FILES_DIR + filename
@@ -140,6 +152,28 @@ func fileHandler(conn net.Conn, request *HTTPProtocol) error {
 		if _, err := conn.Write(buffer); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func postFileHandler(conn net.Conn, request *HTTPProtocol) error {
+	FILES_DIR := os.Args[2]
+	filename := strings.Replace(request.path, "/files/", "", 1)
+	filepath := FILES_DIR + filename
+
+	file, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err := file.Write([]byte(request.body)); err != nil {
+		return err
+	}
+
+	if _, err := conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n")); err != nil {
+		return err
 	}
 
 	return nil
