@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"strings"
+
+	"github.com/codecrafters-io/http-server-starter-go/app/server"
 )
 
 type HTTPProtocol struct {
@@ -18,6 +20,8 @@ type HTTPProtocol struct {
 
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
+
+	server.Hello()
 
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
