@@ -1,16 +1,19 @@
 package server
 
 import (
+	"math"
 	"net"
+	"regexp"
 	"strings"
 )
 
 type HTTPProtocol struct {
-	version string
-	path    string
-	method  string
-	headers map[string]string
-	body    string
+	version     string
+	path        string
+	method      string
+	headers     map[string]string
+	routeParams map[string]string
+	body        string
 }
 
 type HTTPStatusCode struct {
@@ -118,6 +121,17 @@ func getPathSegments(path string) []string {
 	return segments
 }
 
+func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
+	for _, route := range router.getRoutes {
+		if pathMatch(protocol.path, route.path) {
+			route.handler(protocol, &HTTPResponse{conn: conn})
+			return nil
+		}
+	}
+
+	return nil
+}
+
 func isPlaceholder(segment string) bool {
 	return len(segment) > 2 && segment[0] == '[' && segment[len(segment)-1] == ']'
 }
@@ -136,15 +150,29 @@ func pathMatch(requestPath, routePath string) bool {
 	return len(requestSegments) >= len(routeSegments)
 }
 
-func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
-	for _, route := range router.getRoutes {
-		if pathMatch(protocol.path, route.path) {
-			route.handler(protocol, &HTTPResponse{conn: conn})
-			return nil
+func stripPlaceholderChars(placeholder string) string {
+	r, _ := regexp.Compile(`\[(.+)\]`)
+
+	match := r.FindStringSubmatch(placeholder)
+
+	return match[1]
+}
+
+func getRouteParams(requestPath, routePath string) map[string]string {
+	routeParams := make(map[string]string)
+	requestSegments := getPathSegments(requestPath)
+	routeSegments := getPathSegments(routePath)
+	length := int(math.Min(float64(len(requestSegments)), float64(len(routeSegments))))
+
+	for idx := 0; idx < length; idx++ {
+		if isPlaceholder(routeSegments[idx]) {
+			routeParams[stripPlaceholderChars(routeSegments[idx])] = requestSegments[idx]
+		} else if routeSegments[idx] != requestSegments[idx] {
+			return make(map[string]string)
 		}
 	}
 
-	return nil
+	return routeParams
 }
 
 func (router *Router) Listen(address string) error {
@@ -186,6 +214,7 @@ func (response *HTTPResponse) Send() error {
 		return err
 	}
 
+	response.sent = true
 	response.conn.Close()
 	return nil
 }
