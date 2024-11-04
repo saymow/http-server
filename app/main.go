@@ -19,25 +19,31 @@ type HTTPProtocol struct {
 }
 
 func main() {
-	l, err := net.Listen("tcp", "0.0.0.0:4221")
+	router := server.Create()
 
-	server.Hello()
+	router.Get("/", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
+		response.StatusCode(server.HttpStatus.Created).Send()
+	})
 
-	if err != nil {
-		fmt.Println("Failed to bind to port 4221")
-		os.Exit(1)
-	}
+	router.Listen("0.0.0.0:4221")
 
-	for {
-		conn, err := l.Accept()
+	// l, err := net.Listen("tcp", "0.0.0.0:4221")
 
-		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
-		}
+	// if err != nil {
+	// 	fmt.Println("Failed to bind to port 4221")
+	// 	os.Exit(1)
+	// }
 
-		go requestHanlder(conn)
-	}
+	// for {
+	// 	conn, err := l.Accept()
+
+	// 	if err != nil {
+	// 		fmt.Println("Error accepting connection: ", err.Error())
+	// 		os.Exit(1)
+	// 	}
+
+	// 	go requestHanlder(conn)
+	// }
 }
 
 func requestHanlder(conn net.Conn) error {
