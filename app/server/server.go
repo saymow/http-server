@@ -106,30 +106,34 @@ func (router *Router) Get(path string, handler RouteHandler) {
 	router.getRoutes = append(router.getRoutes, Route{path, handler})
 }
 
-func getPathParts(path string) []string {
-	parts := []string{}
+func getPathSegments(path string) []string {
+	segments := []string{}
 
-	for _, segment := range strings.Split(path, "/") {
-		if segment != "" {
-			parts = append(parts, segment)
+	for _, part := range strings.Split(path, "/") {
+		if part != "" {
+			segments = append(segments, part)
 		}
 	}
 
-	return parts
+	return segments
+}
+
+func isPlaceholder(segment string) bool {
+	return len(segment) > 2 && segment[0] == '[' && segment[len(segment)-1] == ']'
 }
 
 func pathMatch(requestPath, routePath string) bool {
-	requestParts := getPathParts(requestPath)
-	routeParts := getPathParts(routePath)
+	requestSegments := getPathSegments(requestPath)
+	routeSegments := getPathSegments(routePath)
 	idx := 0
 
-	for ; idx < len(requestParts) && idx < len(routeParts); idx++ {
-		if requestParts[idx] != routeParts[idx] {
+	for ; idx < len(requestSegments) && idx < len(routeSegments); idx++ {
+		if !isPlaceholder(routeSegments[idx]) && requestSegments[idx] != routeSegments[idx] {
 			return false
 		}
 	}
 
-	return len(requestParts) >= len(routeParts)
+	return len(requestSegments) >= len(routeSegments)
 }
 
 func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
