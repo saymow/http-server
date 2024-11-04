@@ -106,13 +106,35 @@ func (router *Router) Get(path string, handler RouteHandler) {
 	router.getRoutes = append(router.getRoutes, Route{path, handler})
 }
 
-func pathMatch(routePath, protocolPath string) bool {
-	return true
+func getPathParts(path string) []string {
+	parts := []string{}
+
+	for _, segment := range strings.Split(path, "/") {
+		if segment != "" {
+			parts = append(parts, segment)
+		}
+	}
+
+	return parts
+}
+
+func pathMatch(requestPath, routePath string) bool {
+	requestParts := getPathParts(requestPath)
+	routeParts := getPathParts(routePath)
+	idx := 0
+
+	for ; idx < len(requestParts) && idx < len(routeParts); idx++ {
+		if requestParts[idx] != routeParts[idx] {
+			return false
+		}
+	}
+
+	return len(requestParts) >= len(routeParts)
 }
 
 func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
 	for _, route := range router.getRoutes {
-		if pathMatch(route.path, protocol.path) {
+		if pathMatch(protocol.path, route.path) {
 			route.handler(protocol, &HTTPResponse{conn: conn})
 			return nil
 		}
