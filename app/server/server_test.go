@@ -1,6 +1,8 @@
 package server
 
-import "testing"
+import (
+	"testing"
+)
 
 func Assert[T comparable](t *testing.T, received, expected T) {
 	t.Helper()
@@ -67,4 +69,60 @@ func TestPathMatchComplexPaths(t *testing.T) {
 	Assert(t, pathMatch("/posts/2023", "/posts/[year]/[month]"), false)
 	Assert(t, pathMatch("/companies/abc/employees", "/companies/[company]/employees/[employee]"), false)
 	Assert(t, pathMatch("/products/456/reviews/789", "/products/[productId]/details"), false)
+}
+
+func TestGetRouteParams(t *testing.T) {
+	// Basic matching with one parameter
+	params := getRouteParams("/users/5", "/users/[id]")
+
+	Assert(t, len(params), 1)
+	Assert(t, params["id"], "5")
+
+	// Matching with multiple parameters
+	params = getRouteParams("/products/123/details", "/products/[productId]/[section]")
+	Assert(t, len(params), 2)
+	Assert(t, params["productId"], "123")
+	Assert(t, params["section"], "details")
+
+	// Matching with nested parameters
+	params = getRouteParams("/companies/abc/employees/42", "/companies/[company]/employees/[employeeId]")
+	Assert(t, len(params), 2)
+	Assert(t, params["company"], "abc")
+	Assert(t, params["employeeId"], "42")
+
+	// Matching with parameters and additional static segments
+	params = getRouteParams("/users/5/settings", "/users/[id]/settings")
+	Assert(t, len(params), 1)
+	Assert(t, params["id"], "5")
+
+	// Matching with parameters and flexible segments
+	params = getRouteParams("/users/5/details", "/users/[id]")
+	Assert(t, len(params), 1) // Should return no params since paths don't fully match
+	Assert(t, params["id"], "5")
+
+	// Placeholder at the end of the path
+	params = getRouteParams("/posts/2023", "/posts/[year]")
+	Assert(t, len(params), 1)
+	Assert(t, params["year"], "2023")
+
+	// Multiple consecutive placeholders
+	params = getRouteParams("/data/123/456", "/data/[param1]/[param2]")
+	Assert(t, len(params), 2)
+	Assert(t, params["param1"], "123")
+	Assert(t, params["param2"], "456")
+
+	// Multiple consecutive placeholders 2
+	params = getRouteParams("/data/123/456/test/789", "/data/[param1]/[param2]/test/[param3]")
+	Assert(t, len(params), 3)
+	Assert(t, params["param1"], "123")
+	Assert(t, params["param2"], "456")
+	Assert(t, params["param3"], "789")
+
+	// Non-matching path (different structure)
+	params = getRouteParams("/products/123", "/users/[id]")
+	Assert(t, len(params), 0) // No params since paths are different
+
+	// Edge case with no parameters
+	params = getRouteParams("/static/path", "/static/path")
+	Assert(t, len(params), 0) // No params expected as there are no placeholders
 }
