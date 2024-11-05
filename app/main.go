@@ -12,7 +12,6 @@ func main() {
 	router := server.Create()
 
 	router.Get("/", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
-		response.StatusCode(server.HttpStatus.Created)
 		response.Send()
 	})
 
