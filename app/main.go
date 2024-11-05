@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/codecrafters-io/http-server-starter-go/app/server"
@@ -21,8 +22,18 @@ type HTTPProtocol struct {
 func main() {
 	router := server.Create()
 
+	router.Get("/echo/[message]", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
+		message := protocol.RouteParams["message"]
+
+		response.SetHeader("Content-Type", "text/plain")
+		response.SetHeader("Content-Length", strconv.Itoa(len(message)))
+		response.Body(message)
+		response.Send()
+	})
+
 	router.Get("/", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
-		response.StatusCode(server.HttpStatus.Created).Send()
+		response.StatusCode(server.HttpStatus.Created)
+		response.Send()
 	})
 
 	router.Listen("0.0.0.0:4221")

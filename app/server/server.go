@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"math"
 	"net"
 	"regexp"
@@ -11,9 +12,9 @@ type HTTPProtocol struct {
 	version     string
 	path        string
 	method      string
-	headers     map[string]string
-	routeParams map[string]string
-	body        string
+	Headers     map[string]string
+	RouteParams map[string]string
+	Body        string
 }
 
 type HTTPStatusCode struct {
@@ -24,6 +25,8 @@ type HTTPStatusCode struct {
 type HTTPResponse struct {
 	conn       net.Conn
 	statusCode int
+	headers    map[string]string
+	body       string
 	sent       bool
 }
 
@@ -38,7 +41,8 @@ type Router struct {
 	getRoutes []Route
 }
 
-type MalformatedRequestError struct {
+type ServerError struct {
+	message string
 }
 
 var HttpStatus = HTTPStatusCode{
@@ -50,8 +54,8 @@ func Create() Router {
 	return Router{}
 }
 
-func (error MalformatedRequestError) Error() string {
-	return "Invalid request format"
+func (error ServerError) Error() string {
+	return fmt.Sprintf("Server error: %s", error.message)
 }
 
 func resolveTCPConnection(conn net.Conn) (*HTTPProtocol, error) {
@@ -59,23 +63,23 @@ func resolveTCPConnection(conn net.Conn) (*HTTPProtocol, error) {
 
 	n, err := conn.Read(buffer)
 	if err != nil {
-		return nil, MalformatedRequestError{}
+		return nil, ServerError{"unexpected error."}
 	}
 	buffer = buffer[:n]
 
 	request := string(buffer)
 	parts := strings.Split(request, "\r\n")
 	if len(parts) == 0 {
-		return nil, MalformatedRequestError{}
+		return nil, ServerError{"malformated request."}
 	}
 
 	target := strings.Split(parts[0], " ")
 	if len(target) != 3 {
-		return nil, MalformatedRequestError{}
+		return nil, ServerError{"malformated request."}
 	}
 
 	protocol := HTTPProtocol{
-		headers: make(map[string]string),
+		Headers: make(map[string]string),
 	}
 
 	// Read HTTP target
@@ -89,17 +93,17 @@ func resolveTCPConnection(conn net.Conn) (*HTTPProtocol, error) {
 		header := strings.Split(parts[idx], ": ")
 
 		if len(header) != 2 {
-			return nil, MalformatedRequestError{}
+			return nil, ServerError{"malformated request."}
 		}
 
-		protocol.headers[header[0]] = header[1]
+		protocol.Headers[header[0]] = header[1]
 	}
 
 	// Read possible body
 	if idx+1 < len(parts) {
-		protocol.body = parts[idx+1]
+		protocol.Body = parts[idx+1]
 	} else {
-		protocol.body = ""
+		protocol.Body = ""
 	}
 
 	return &protocol, nil
@@ -124,7 +128,8 @@ func getPathSegments(path string) []string {
 func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
 	for _, route := range router.getRoutes {
 		if pathMatch(protocol.path, route.path) {
-			route.handler(protocol, &HTTPResponse{conn: conn})
+			protocol.RouteParams = getRouteParams(protocol.path, route.path)
+			route.handler(protocol, &HTTPResponse{conn: conn, headers: make(map[string]string)})
 			return nil
 		}
 	}
@@ -190,12 +195,16 @@ func (router *Router) Listen(address string) error {
 	}
 }
 
-func (response *HTTPResponse) StatusCode(statusCode int) *HTTPResponse {
+func (response *HTTPResponse) StatusCode(statusCode int) (*HTTPResponse, error) {
+	if response.sent {
+		return nil, ServerError{"connection already closed."}
+	}
+
 	response.statusCode = statusCode
-	return response
+	return response, nil
 }
 
-func StatusCodeLine(statusCode int) string {
+func statusCodeLine(statusCode int) string {
 	switch statusCode {
 	case HttpStatus.Ok:
 		return "HTTP/1.1 200 Ok\r\n"
@@ -206,11 +215,43 @@ func StatusCodeLine(statusCode int) string {
 	}
 }
 
+func (response *HTTPResponse) Body(body string) (*HTTPResponse, error) {
+	if response.sent {
+		return nil, ServerError{"connection already closed."}
+	}
+
+	response.body = body
+	return response, nil
+}
+
+func (response *HTTPResponse) SetHeader(key, value string) error {
+	if response.sent {
+		return ServerError{"connection already closed."}
+	}
+
+	response.headers[key] = value
+	return nil
+}
+
 func (response *HTTPResponse) Send() error {
-	if _, err := response.conn.Write([]byte(StatusCodeLine(response.statusCode))); err != nil {
+	if response.sent {
+		return ServerError{"connection already closed."}
+	}
+
+	if _, err := response.conn.Write([]byte(statusCodeLine(response.statusCode))); err != nil {
 		return err
 	}
+
+	for key, value := range response.headers {
+		if _, err := response.conn.Write([]byte(fmt.Sprintf("%s: %s\r\n", key, value))); err != nil {
+			return err
+		}
+	}
+
 	if _, err := response.conn.Write([]byte("\r\n")); err != nil {
+		return err
+	}
+	if _, err := response.conn.Write([]byte(response.body)); err != nil {
 		return err
 	}
 
