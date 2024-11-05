@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"math"
 	"net"
 	"regexp"
 	"strings"
@@ -44,6 +43,12 @@ type Router struct {
 type ServerError struct {
 	message string
 }
+
+const (
+	OPEN_PLACEHOLDER_CHAR  = '['
+	CLOSE_PLACEHOLDER_CHAR = ']'
+	WILDCARD_CHAR          = '*'
+)
 
 var HttpStatus = HTTPStatusCode{
 	Ok:      200,
@@ -138,7 +143,9 @@ func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error 
 }
 
 func isPlaceholder(segment string) bool {
-	return len(segment) > 2 && segment[0] == '[' && segment[len(segment)-1] == ']'
+	return len(segment) > 2 &&
+		segment[0] == OPEN_PLACEHOLDER_CHAR &&
+		segment[len(segment)-1] == CLOSE_PLACEHOLDER_CHAR
 }
 
 func pathMatch(requestPath, routePath string) bool {
@@ -147,12 +154,14 @@ func pathMatch(requestPath, routePath string) bool {
 	idx := 0
 
 	for ; idx < len(requestSegments) && idx < len(routeSegments); idx++ {
-		if !isPlaceholder(routeSegments[idx]) && requestSegments[idx] != routeSegments[idx] {
+		if routeSegments[idx] == string(WILDCARD_CHAR) {
+			return true
+		} else if !isPlaceholder(routeSegments[idx]) && requestSegments[idx] != routeSegments[idx] {
 			return false
 		}
 	}
 
-	return len(requestSegments) >= len(routeSegments)
+	return len(requestSegments) == len(routeSegments)
 }
 
 func stripPlaceholderChars(placeholder string) string {
@@ -167,9 +176,12 @@ func getRouteParams(requestPath, routePath string) map[string]string {
 	routeParams := make(map[string]string)
 	requestSegments := getPathSegments(requestPath)
 	routeSegments := getPathSegments(routePath)
-	length := int(math.Min(float64(len(requestSegments)), float64(len(routeSegments))))
 
-	for idx := 0; idx < length; idx++ {
+	if len(requestSegments) != len(routeSegments) {
+		return make(map[string]string)
+	}
+
+	for idx := 0; idx < len(requestSegments); idx++ {
 		if isPlaceholder(routeSegments[idx]) {
 			routeParams[stripPlaceholderChars(routeSegments[idx])] = requestSegments[idx]
 		} else if routeSegments[idx] != requestSegments[idx] {
