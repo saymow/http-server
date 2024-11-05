@@ -283,7 +283,7 @@ func statusCodeLine(statusCode int) string {
 	case HttpStatus.InternalSeverError:
 		return "HTTP/1.1 500 Internal Server Error\r\n"
 	default:
-		return "HTTP/1.1 200 Ok\r\n"
+		return "HTTP/1.1 200 OK\r\n"
 	}
 }
 
