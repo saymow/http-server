@@ -17,9 +17,10 @@ type HTTPProtocol struct {
 }
 
 type HTTPStatusCode struct {
-	Ok       int
-	Created  int
-	NotFound int
+	Ok                 int
+	Created            int
+	NotFound           int
+	InternalSeverError int
 }
 
 type HTTPResponse struct {
@@ -27,6 +28,7 @@ type HTTPResponse struct {
 	statusCode int
 	headers    map[string]string
 	body       string
+	headerSent bool
 	sent       bool
 }
 
@@ -52,9 +54,10 @@ const (
 )
 
 var HttpStatus = HTTPStatusCode{
-	Ok:       200,
-	Created:  201,
-	NotFound: 404,
+	Ok:                 200,
+	Created:            201,
+	NotFound:           404,
+	InternalSeverError: 500,
 }
 
 func Create() Router {
@@ -209,26 +212,13 @@ func (router *Router) Listen(address string) error {
 	}
 }
 
-func (response *HTTPResponse) StatusCode(statusCode int) (*HTTPResponse, error) {
+func (response *HTTPResponse) SetHeader(key, value string) error {
 	if response.sent {
-		return nil, ServerError{"connection already closed."}
+		return ServerError{"connection already closed."}
 	}
 
-	response.statusCode = statusCode
-	return response, nil
-}
-
-func statusCodeLine(statusCode int) string {
-	switch statusCode {
-	case HttpStatus.Ok:
-		return "HTTP/1.1 200 Ok\r\n"
-	case HttpStatus.Created:
-		return "HTTP/1.1 201 Created\r\n"
-	case HttpStatus.NotFound:
-		return "HTTP/1.1 404 Not Found\r\n"
-	default:
-		return "HTTP/1.1 200 Ok\r\n"
-	}
+	response.headers[key] = value
+	return nil
 }
 
 func (response *HTTPResponse) Body(body string) (*HTTPResponse, error) {
@@ -240,18 +230,51 @@ func (response *HTTPResponse) Body(body string) (*HTTPResponse, error) {
 	return response, nil
 }
 
-func (response *HTTPResponse) SetHeader(key, value string) error {
+func (response *HTTPResponse) StatusCode(statusCode int) (*HTTPResponse, error) {
 	if response.sent {
-		return ServerError{"connection already closed."}
+		return nil, ServerError{"connection already closed."}
 	}
 
-	response.headers[key] = value
-	return nil
+	response.statusCode = statusCode
+	return response, nil
 }
 
-func (response *HTTPResponse) Send() error {
+func (response *HTTPResponse) Write(b []byte) (int, error) {
 	if response.sent {
-		return ServerError{"connection already closed."}
+		return 0, ServerError{"connection already closed."}
+	}
+
+	if !response.headerSent {
+		response.sendHeader()
+	}
+
+	n, err := response.conn.Write(b)
+
+	if err != nil {
+		return n, err
+	}
+
+	return n, nil
+}
+
+func statusCodeLine(statusCode int) string {
+	switch statusCode {
+	case HttpStatus.Ok:
+		return "HTTP/1.1 200 Ok\r\n"
+	case HttpStatus.Created:
+		return "HTTP/1.1 201 Created\r\n"
+	case HttpStatus.NotFound:
+		return "HTTP/1.1 404 Not Found\r\n"
+	case HttpStatus.InternalSeverError:
+		return "HTTP/1.1 500 Internal Server Error\r\n"
+	default:
+		return "HTTP/1.1 200 Ok\r\n"
+	}
+}
+
+func (response *HTTPResponse) sendHeader() error {
+	if response.headerSent {
+		return ServerError{"header already sent."}
 	}
 
 	if _, err := response.conn.Write([]byte(statusCodeLine(response.statusCode))); err != nil {
@@ -267,8 +290,35 @@ func (response *HTTPResponse) Send() error {
 	if _, err := response.conn.Write([]byte("\r\n")); err != nil {
 		return err
 	}
+
+	response.headerSent = true
+	return nil
+}
+
+func (response *HTTPResponse) Send() error {
+	if response.sent {
+		return ServerError{"connection already closed."}
+	}
+
+	if !response.headerSent {
+		response.sendHeader()
+	}
+
 	if _, err := response.conn.Write([]byte(response.body)); err != nil {
 		return err
+	}
+
+	response.Close()
+	return nil
+}
+
+func (response *HTTPResponse) Close() error {
+	if response.sent {
+		return ServerError{"connection already closed."}
+	}
+
+	if !response.headerSent {
+		response.sendHeader()
 	}
 
 	response.sent = true
