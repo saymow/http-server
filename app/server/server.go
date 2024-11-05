@@ -40,7 +40,8 @@ type Route struct {
 }
 
 type Router struct {
-	getRoutes []Route
+	getRoutes  []Route
+	postRoutes []Route
 }
 
 type ServerError struct {
@@ -123,6 +124,10 @@ func (router *Router) Get(path string, handler RouteHandler) {
 	router.getRoutes = append(router.getRoutes, Route{path, handler})
 }
 
+func (router *Router) Post(path string, handler RouteHandler) {
+	router.postRoutes = append(router.postRoutes, Route{path, handler})
+}
+
 func getPathSegments(path string) []string {
 	segments := []string{}
 
@@ -136,11 +141,21 @@ func getPathSegments(path string) []string {
 }
 
 func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
-	for _, route := range router.getRoutes {
-		if pathMatch(protocol.path, route.path) {
-			protocol.RouteParams = getRouteParams(protocol.path, route.path)
-			route.handler(protocol, &HTTPResponse{conn: conn, headers: make(map[string]string)})
-			return nil
+	if protocol.method == "GET" {
+		for _, route := range router.getRoutes {
+			if pathMatch(protocol.path, route.path) {
+				protocol.RouteParams = getRouteParams(protocol.path, route.path)
+				route.handler(protocol, &HTTPResponse{conn: conn, headers: make(map[string]string)})
+				return nil
+			}
+		}
+	} else if protocol.method == "POST" {
+		for _, route := range router.postRoutes {
+			if pathMatch(protocol.path, route.path) {
+				protocol.RouteParams = getRouteParams(protocol.path, route.path)
+				route.handler(protocol, &HTTPResponse{conn: conn, headers: make(map[string]string)})
+				return nil
+			}
 		}
 	}
 

@@ -2,21 +2,11 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 
 	"github.com/codecrafters-io/http-server-starter-go/app/server"
 )
-
-type HTTPProtocol struct {
-	conn    net.Conn
-	version string
-	path    string
-	method  string
-	headers map[string]string
-	body    string
-}
 
 func main() {
 	router := server.Create()
@@ -101,28 +91,30 @@ func main() {
 		response.Send()
 	})
 
+	router.Post("/files/[filename]", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
+		FILES_DIR := os.Args[2]
+		filename := protocol.RouteParams["filename"]
+		filepath := FILES_DIR + filename
+
+		file, err := os.Create(filepath)
+		if err != nil {
+			response.StatusCode(server.HttpStatus.InternalSeverError)
+			response.Body(err.Error())
+			response.Send()
+			return
+		}
+		defer file.Close()
+
+		if _, err := file.Write([]byte(protocol.Body)); err != nil {
+			response.StatusCode(server.HttpStatus.InternalSeverError)
+			response.Body(err.Error())
+			response.Send()
+			return
+		}
+
+		response.StatusCode(server.HttpStatus.Created)
+		response.Send()
+	})
+
 	router.Listen("0.0.0.0:4221")
-
 }
-
-// func postFileHandler(request *HTTPProtocol) error {
-// 	FILES_DIR := os.Args[2]
-// 	filename := strings.Replace(request.path, "/files/", "", 1)
-// 	filepath := FILES_DIR + filename
-
-// 	file, err := os.Create(filepath)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer file.Close()
-
-// 	if _, err := file.Write([]byte(request.body)); err != nil {
-// 		return err
-// 	}
-
-// 	if _, err := request.conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n")); err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
