@@ -17,8 +17,9 @@ type HTTPProtocol struct {
 }
 
 type HTTPStatusCode struct {
-	Ok      int
-	Created int
+	Ok       int
+	Created  int
+	NotFound int
 }
 
 type HTTPResponse struct {
@@ -51,8 +52,9 @@ const (
 )
 
 var HttpStatus = HTTPStatusCode{
-	Ok:      200,
-	Created: 201,
+	Ok:       200,
+	Created:  201,
+	NotFound: 404,
 }
 
 func Create() Router {
@@ -222,6 +224,8 @@ func statusCodeLine(statusCode int) string {
 		return "HTTP/1.1 200 Ok\r\n"
 	case HttpStatus.Created:
 		return "HTTP/1.1 201 Created\r\n"
+	case HttpStatus.NotFound:
+		return "HTTP/1.1 404 Not Found\r\n"
 	default:
 		return "HTTP/1.1 200 Ok\r\n"
 	}

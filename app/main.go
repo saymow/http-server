@@ -22,6 +22,11 @@ type HTTPProtocol struct {
 func main() {
 	router := server.Create()
 
+	router.Get("/", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
+		response.StatusCode(server.HttpStatus.Created)
+		response.Send()
+	})
+
 	router.Get("/echo/[message]", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
 		message := protocol.RouteParams["message"]
 
@@ -31,8 +36,17 @@ func main() {
 		response.Send()
 	})
 
-	router.Get("/", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
-		response.StatusCode(server.HttpStatus.Created)
+	router.Get("/user-agent", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
+		userAgent := protocol.Headers["User-Agent"]
+
+		response.SetHeader("Content-Type", "text/plain")
+		response.SetHeader("Content-Length", strconv.Itoa(len(userAgent)))
+		response.Body(userAgent)
+		response.Send()
+	})
+
+	router.Get("*", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
+		response.StatusCode(server.HttpStatus.NotFound)
 		response.Send()
 	})
 
@@ -73,64 +87,13 @@ func requestHanlder(conn net.Conn) error {
 	}
 	parseProtocol(&protocol, buffer)
 
-	if protocol.path == "/" {
-		indexHandler(&protocol)
-	} else if strings.HasPrefix(protocol.path, "/echo") {
-		echoHandler(&protocol)
-	} else if strings.HasPrefix(protocol.path, "/user-agent") {
-		userAgentHandler(&protocol)
-	} else if strings.HasPrefix(protocol.path, "/files") && protocol.method == "GET" {
+	if strings.HasPrefix(protocol.path, "/files") && protocol.method == "GET" {
 		getFileHandler(&protocol)
 	} else if strings.HasPrefix(protocol.path, "/files") && protocol.method == "POST" {
 		postFileHandler(&protocol)
-	} else {
-		notFoundHandler(&protocol)
 	}
 
 	return nil
-}
-
-func parseProtocol(protocol *HTTPProtocol, requestBuffer []byte) {
-	requestStr := string(requestBuffer)
-	parts := strings.Split(requestStr, "\r\n")
-	target := strings.Split(parts[0], " ")
-	idx := 1
-
-	protocol.method = target[0]
-	protocol.path = target[1]
-	protocol.version = target[2]
-	for ; parts[idx] != ""; idx++ {
-		header := strings.Split(parts[idx], ": ")
-		protocol.headers[header[0]] = header[1]
-	}
-
-	if idx+1 < len(parts) {
-		protocol.body = parts[idx+1]
-	} else {
-		protocol.body = ""
-	}
-}
-
-func indexHandler(request *HTTPProtocol) {
-	request.conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-}
-
-func userAgentHandler(request *HTTPProtocol) {
-	message := request.headers["User-Agent"]
-
-	request.conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
-	request.conn.Write([]byte("Content-Type: text/plain\r\n"))
-	request.conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
-	request.conn.Write([]byte(message))
-}
-
-func echoHandler(request *HTTPProtocol) {
-	message := strings.Replace(request.path, "/echo/", "", 1)
-
-	request.conn.Write([]byte("HTTP/1.1 200 OK\r\n"))
-	request.conn.Write([]byte("Content-Type: text/plain\r\n"))
-	request.conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", len(message))))
-	request.conn.Write([]byte(message))
 }
 
 func getFileHandler(request *HTTPProtocol) error {
@@ -200,8 +163,4 @@ func postFileHandler(request *HTTPProtocol) error {
 	}
 
 	return nil
-}
-
-func notFoundHandler(request *HTTPProtocol) {
-	request.conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 }
