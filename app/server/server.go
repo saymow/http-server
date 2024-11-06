@@ -145,6 +145,8 @@ func getPathSegments(path string) []string {
 func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
 	response := &HTTPResponse{conn: conn, headers: make(map[string]string)}
 
+	defer response.Close()
+
 	if _, ok := protocol.Headers["Accept-Encoding"]; ok {
 		if slices.Contains(protocol.Headers["Accept-Encoding"], "gzip") {
 			response.SetHeader("Content-Encoding", "gzip")
