@@ -25,7 +25,7 @@ func main() {
 	})
 
 	router.Get("/user-agent", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
-		userAgent := protocol.Headers["User-Agent"]
+		userAgent := protocol.Headers["User-Agent"][0]
 
 		response.SetHeader("Content-Type", "text/plain")
 		response.SetHeader("Content-Length", strconv.Itoa(len(userAgent)))

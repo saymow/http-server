@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -11,7 +12,7 @@ type HTTPProtocol struct {
 	version     string
 	path        string
 	method      string
-	Headers     map[string]string
+	Headers     map[string][]string
 	RouteParams map[string]string
 	Body        string
 }
@@ -90,7 +91,7 @@ func resolveTCPConnection(conn net.Conn) (*HTTPProtocol, error) {
 	}
 
 	protocol := HTTPProtocol{
-		Headers: make(map[string]string),
+		Headers: make(map[string][]string),
 	}
 
 	// Read HTTP target
@@ -107,7 +108,8 @@ func resolveTCPConnection(conn net.Conn) (*HTTPProtocol, error) {
 			return nil, ServerError{"malformated request."}
 		}
 
-		protocol.Headers[header[0]] = header[1]
+		protocol.Headers[header[0]] = strings.Split(header[1], ", ")
+
 	}
 
 	// Read possible body
@@ -141,11 +143,19 @@ func getPathSegments(path string) []string {
 }
 
 func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
+	response := &HTTPResponse{conn: conn, headers: make(map[string]string)}
+
+	if _, ok := protocol.Headers["Accept-Encoding"]; ok {
+		if slices.Contains(protocol.Headers["Accept-Encoding"], "gzip") {
+			response.SetHeader("Content-Encoding", "gzip")
+		}
+	}
+
 	if protocol.method == "GET" {
 		for _, route := range router.getRoutes {
 			if pathMatch(protocol.path, route.path) {
 				protocol.RouteParams = getRouteParams(protocol.path, route.path)
-				route.handler(protocol, &HTTPResponse{conn: conn, headers: make(map[string]string)})
+				route.handler(protocol, response)
 				return nil
 			}
 		}
@@ -153,7 +163,7 @@ func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error 
 		for _, route := range router.postRoutes {
 			if pathMatch(protocol.path, route.path) {
 				protocol.RouteParams = getRouteParams(protocol.path, route.path)
-				route.handler(protocol, &HTTPResponse{conn: conn, headers: make(map[string]string)})
+				route.handler(protocol, response)
 				return nil
 			}
 		}
