@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/codecrafters-io/http-server-starter-go/app/server"
 )
@@ -18,8 +17,6 @@ func main() {
 	router.Get("/echo/[message]", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
 		message := protocol.RouteParams["message"]
 
-		response.SetHeader("Content-Type", "text/plain")
-		response.SetHeader("Content-Length", strconv.Itoa(len(message)))
 		response.Body(message)
 		response.Send()
 	})
@@ -27,8 +24,6 @@ func main() {
 	router.Get("/user-agent", func(protocol *server.HTTPProtocol, response *server.HTTPResponse) {
 		userAgent := protocol.Headers["User-Agent"][0]
 
-		response.SetHeader("Content-Type", "text/plain")
-		response.SetHeader("Content-Length", strconv.Itoa(len(userAgent)))
 		response.Body(userAgent)
 		response.Send()
 	})

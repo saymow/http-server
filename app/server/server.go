@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"net"
 	"regexp"
@@ -147,6 +149,7 @@ func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error 
 
 	defer response.Close()
 
+	response.SetHeader("Content-Type", "text/plain")
 	if _, ok := protocol.Headers["Accept-Encoding"]; ok {
 		if slices.Contains(protocol.Headers["Accept-Encoding"], "gzip") {
 			response.SetHeader("Content-Encoding", "gzip")
@@ -272,7 +275,11 @@ func (response *HTTPResponse) Write(b []byte) (int, error) {
 	}
 
 	if !response.headerSent {
-		response.sendHeader()
+		response.sendStaticHeader()
+
+		if _, err := response.conn.Write([]byte("\r\n")); err != nil {
+			return 0, err
+		}
 	}
 
 	n, err := response.conn.Write(b)
@@ -299,7 +306,7 @@ func statusCodeLine(statusCode int) string {
 	}
 }
 
-func (response *HTTPResponse) sendHeader() error {
+func (response *HTTPResponse) sendStaticHeader() error {
 	if response.headerSent {
 		return ServerError{"header already sent."}
 	}
@@ -314,10 +321,6 @@ func (response *HTTPResponse) sendHeader() error {
 		}
 	}
 
-	if _, err := response.conn.Write([]byte("\r\n")); err != nil {
-		return err
-	}
-
 	response.headerSent = true
 	return nil
 }
@@ -328,10 +331,36 @@ func (response *HTTPResponse) Send() error {
 	}
 
 	if !response.headerSent {
-		response.sendHeader()
+		response.sendStaticHeader()
 	}
 
-	if _, err := response.conn.Write([]byte(response.body)); err != nil {
+	var contentLength int
+	var content []byte
+
+	if response.headers["Content-Encoding"] == "gzip" {
+		var buffer bytes.Buffer
+		gzipWriter := gzip.NewWriter(&buffer)
+
+		if _, err := gzipWriter.Write([]byte(response.body)); err != nil {
+			return err
+		}
+
+		if err := gzipWriter.Close(); err != nil {
+			return err
+		}
+
+		content = buffer.Bytes()
+		contentLength = buffer.Len()
+	} else {
+		content = []byte(response.body)
+		contentLength = len(response.body)
+	}
+
+	if _, err := response.conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", contentLength))); err != nil {
+		return err
+	}
+
+	if _, err := response.conn.Write(content); err != nil {
 		return err
 	}
 
@@ -345,7 +374,7 @@ func (response *HTTPResponse) Close() error {
 	}
 
 	if !response.headerSent {
-		response.sendHeader()
+		response.sendStaticHeader()
 	}
 
 	response.sent = true
