@@ -31,6 +31,11 @@ func TestBasicConnection(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
 
+	defer func() {
+		client.Close()
+		server.Close()
+	}()
+
 	router.Get("/", func(protocol *HTTPProtocol, response *HTTPResponse) {
 		response.Send()
 	})
@@ -50,6 +55,11 @@ func TestBasicConnection(t *testing.T) {
 func TestResponseBody(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
+
+	defer func() {
+		client.Close()
+		server.Close()
+	}()
 
 	router.Get("/", func(protocol *HTTPProtocol, response *HTTPResponse) {
 		response.Body("the response body")
@@ -71,6 +81,11 @@ func TestResponseBody(t *testing.T) {
 func TestRouteParams(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
+
+	defer func() {
+		client.Close()
+		server.Close()
+	}()
 
 	router.Get("/users/[userId]/department/[userDepartment]", func(protocol *HTTPProtocol, response *HTTPResponse) {
 		Assert(t, protocol.RouteParams["userId"], "77")
