@@ -67,3 +67,24 @@ func TestResponseBody(t *testing.T) {
 	response, _ := readResponse(client)
 	Assert(t, strconv.Quote(response), strconv.Quote("HTTP/1.1 200 OK\r\nContent-Type: plain/text\r\nContent-Length: 17\r\n\r\nthe response body"))
 }
+
+func TestRouteParams(t *testing.T) {
+	client, server := net.Pipe()
+	router := Create()
+
+	router.Get("/users/[userId]/department/[userDepartment]", func(protocol *HTTPProtocol, response *HTTPResponse) {
+		Assert(t, protocol.RouteParams["userId"], "77")
+		Assert(t, protocol.RouteParams["userDepartment"], "accounting")
+		response.Close()
+	})
+
+	go (func() {
+		client.Write([]byte("GET /users/77/department/accounting HTTP/1.1\r\n\r\n"))
+	})()
+
+	go (func() {
+		router.connectionHandler(server)
+	})()
+
+	readResponse(client)
+}
