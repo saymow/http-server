@@ -7,6 +7,7 @@ import (
 	"net"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -27,12 +28,12 @@ type HTTPStatusCode struct {
 }
 
 type HTTPResponse struct {
-	conn       net.Conn
-	statusCode int
-	headers    map[string]string
-	body       string
-	headerSent bool
-	sent       bool
+	conn          net.Conn
+	statusCode    int
+	customHeaders map[string]string
+	body          string
+	headerSent    bool
+	sent          bool
 }
 
 type RouteHandler func(protocol *HTTPProtocol, response *HTTPResponse)
@@ -72,7 +73,15 @@ func (error ServerError) Error() string {
 	return fmt.Sprintf("Server error: %s", error.message)
 }
 
-func resolveTCPConnection(conn net.Conn) (*HTTPProtocol, error) {
+func (router *Router) Get(path string, handler RouteHandler) {
+	router.getRoutes = append(router.getRoutes, Route{path, handler})
+}
+
+func (router *Router) Post(path string, handler RouteHandler) {
+	router.postRoutes = append(router.postRoutes, Route{path, handler})
+}
+
+func resolveConnection(conn net.Conn) (*HTTPProtocol, error) {
 	buffer := make([]byte, 1024)
 
 	n, err := conn.Read(buffer)
@@ -124,32 +133,30 @@ func resolveTCPConnection(conn net.Conn) (*HTTPProtocol, error) {
 	return &protocol, nil
 }
 
-func (router *Router) Get(path string, handler RouteHandler) {
-	router.getRoutes = append(router.getRoutes, Route{path, handler})
-}
+func (router *Router) Listen(address string) error {
+	listener, err := net.Listen("tcp", address)
 
-func (router *Router) Post(path string, handler RouteHandler) {
-	router.postRoutes = append(router.postRoutes, Route{path, handler})
-}
-
-func getPathSegments(path string) []string {
-	segments := []string{}
-
-	for _, part := range strings.Split(path, "/") {
-		if part != "" {
-			segments = append(segments, part)
-		}
+	if err != nil {
+		return err
 	}
 
-	return segments
+	for {
+		conn, _ := listener.Accept()
+		go router.connectionHandler(conn)
+	}
 }
 
-func (router *Router) routeHandler(conn net.Conn, protocol *HTTPProtocol) error {
-	response := &HTTPResponse{conn: conn, headers: make(map[string]string)}
+func (router *Router) connectionHandler(conn net.Conn) error {
+	defer conn.Close()
 
-	defer response.Close()
+	protocol, err := resolveConnection(conn)
 
-	response.SetHeader("Content-Type", "text/plain")
+	if err != nil {
+		return err
+	}
+
+	response := &HTTPResponse{conn: conn, customHeaders: make(map[string]string)}
+
 	if _, ok := protocol.Headers["Accept-Encoding"]; ok {
 		if slices.Contains(protocol.Headers["Accept-Encoding"], "gzip") {
 			response.SetHeader("Content-Encoding", "gzip")
@@ -181,6 +188,18 @@ func isPlaceholder(segment string) bool {
 	return len(segment) > 2 &&
 		segment[0] == OPEN_PLACEHOLDER_CHAR &&
 		segment[len(segment)-1] == CLOSE_PLACEHOLDER_CHAR
+}
+
+func getPathSegments(path string) []string {
+	segments := []string{}
+
+	for _, part := range strings.Split(path, "/") {
+		if part != "" {
+			segments = append(segments, part)
+		}
+	}
+
+	return segments
 }
 
 func pathMatch(requestPath, routePath string) bool {
@@ -227,27 +246,12 @@ func getRouteParams(requestPath, routePath string) map[string]string {
 	return routeParams
 }
 
-func (router *Router) Listen(address string) error {
-	listener, err := net.Listen("tcp", address)
-
-	if err != nil {
-		return err
-	}
-
-	for {
-		conn, _ := listener.Accept()
-		httpProtocol, _ := resolveTCPConnection(conn)
-
-		go router.routeHandler(conn, httpProtocol)
-	}
-}
-
 func (response *HTTPResponse) SetHeader(key, value string) error {
 	if response.sent {
 		return ServerError{"connection already closed."}
 	}
 
-	response.headers[key] = value
+	response.customHeaders[key] = value
 	return nil
 }
 
@@ -269,28 +273,6 @@ func (response *HTTPResponse) StatusCode(statusCode int) (*HTTPResponse, error) 
 	return response, nil
 }
 
-func (response *HTTPResponse) Write(b []byte) (int, error) {
-	if response.sent {
-		return 0, ServerError{"connection already closed."}
-	}
-
-	if !response.headerSent {
-		response.sendStaticHeader()
-
-		if _, err := response.conn.Write([]byte("\r\n")); err != nil {
-			return 0, err
-		}
-	}
-
-	n, err := response.conn.Write(b)
-
-	if err != nil {
-		return n, err
-	}
-
-	return n, nil
-}
-
 func statusCodeLine(statusCode int) string {
 	switch statusCode {
 	case HttpStatus.Ok:
@@ -306,7 +288,7 @@ func statusCodeLine(statusCode int) string {
 	}
 }
 
-func (response *HTTPResponse) sendStaticHeader() error {
+func (response *HTTPResponse) writeHeader(serverHeaders map[string]string) error {
 	if response.headerSent {
 		return ServerError{"header already sent."}
 	}
@@ -315,14 +297,44 @@ func (response *HTTPResponse) sendStaticHeader() error {
 		return err
 	}
 
-	for key, value := range response.headers {
+	for key, value := range serverHeaders {
 		if _, err := response.conn.Write([]byte(fmt.Sprintf("%s: %s\r\n", key, value))); err != nil {
 			return err
 		}
 	}
 
+	for key, value := range response.customHeaders {
+		if _, err := response.conn.Write([]byte(fmt.Sprintf("%s: %s\r\n", key, value))); err != nil {
+			return err
+		}
+	}
+
+	if _, err := response.conn.Write([]byte("\r\n")); err != nil {
+		return err
+	}
+
 	response.headerSent = true
 	return nil
+}
+
+func (response *HTTPResponse) Write(b []byte) (int, error) {
+	if response.sent {
+		return 0, ServerError{"connection already closed."}
+	}
+
+	if !response.headerSent {
+		if err := response.writeHeader(map[string]string{}); err != nil {
+			return 0, err
+		}
+	}
+
+	n, err := response.conn.Write(b)
+
+	if err != nil {
+		return n, err
+	}
+
+	return n, nil
 }
 
 func (response *HTTPResponse) Send() error {
@@ -330,14 +342,17 @@ func (response *HTTPResponse) Send() error {
 		return ServerError{"connection already closed."}
 	}
 
-	if !response.headerSent {
-		response.sendStaticHeader()
+	defer response.Close()
+
+	if response.body == "" {
+		return nil
 	}
 
-	var contentLength int
-	var content []byte
+	serverHeaders := map[string]string{}
+	var message []byte
+	var messageLength int
 
-	if response.headers["Content-Encoding"] == "gzip" {
+	if response.customHeaders["Content-Encoding"] == "gzip" {
 		var buffer bytes.Buffer
 		gzipWriter := gzip.NewWriter(&buffer)
 
@@ -349,22 +364,23 @@ func (response *HTTPResponse) Send() error {
 			return err
 		}
 
-		content = buffer.Bytes()
-		contentLength = buffer.Len()
+		message = buffer.Bytes()
+		messageLength = buffer.Len()
 	} else {
-		content = []byte(response.body)
-		contentLength = len(response.body)
+		message = []byte(response.body)
+		messageLength = len(response.body)
 	}
 
-	if _, err := response.conn.Write([]byte(fmt.Sprintf("Content-Length: %d\r\n\r\n", contentLength))); err != nil {
+	serverHeaders["Content-Type"] = "plain/text"
+	serverHeaders["Content-Length"] = strconv.Itoa(messageLength)
+
+	if err := response.writeHeader(serverHeaders); err != nil {
+		return err
+	}
+	if _, err := response.conn.Write(message); err != nil {
 		return err
 	}
 
-	if _, err := response.conn.Write(content); err != nil {
-		return err
-	}
-
-	response.Close()
 	return nil
 }
 
@@ -374,10 +390,12 @@ func (response *HTTPResponse) Close() error {
 	}
 
 	if !response.headerSent {
-		response.sendStaticHeader()
+		if err := response.writeHeader(map[string]string{}); err != nil {
+			return err
+		}
 	}
 
-	response.sent = true
 	response.conn.Close()
+	response.sent = true
 	return nil
 }
