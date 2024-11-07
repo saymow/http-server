@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type HTTPClientResponse struct {
@@ -92,75 +94,61 @@ func TestBasicConnection(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
 
-	defer func() {
-		client.Close()
-		server.Close()
-	}()
+	defer client.Close()
+	defer server.Close()
 
 	router.Get("/", func(protocol *HTTPProtocol, response *HTTPResponse) {
 		response.Send()
 	})
 
-	go (func() {
-		client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
-	})()
-
-	go (func() {
-		router.connectionHandler(server)
-	})()
+	go client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
+	go router.connectionHandler(server)
 
 	response, _ := readConnectionResponse(client)
-	Assert(t, strconv.Quote(response), strconv.Quote("HTTP/1.1 200 OK\r\n\r\n"))
+	assert.Equal(t, strconv.Quote(response), strconv.Quote("HTTP/1.1 200 OK\r\n\r\n"))
 }
 
 func TestResponseFormat(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
 
-	defer func() {
-		client.Close()
-		server.Close()
-	}()
+	defer client.Close()
+	defer server.Close()
 
 	router.Get("/", func(protocol *HTTPProtocol, response *HTTPResponse) {
 		response.Body("the response body")
 		response.Send()
 	})
 
-	go (func() {
-		client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
-	})()
+	go client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
+	go router.connectionHandler(server)
 
-	go (func() {
-		router.connectionHandler(server)
-	})()
+	response, err := readHTTPResponse(client)
 
-	response, _ := readConnectionResponse(client)
-	Assert(t, strconv.Quote(response), strconv.Quote("HTTP/1.1 200 OK\r\nContent-Type: plain/text\r\nContent-Length: 17\r\n\r\nthe response body"))
+	assert.Nil(t, err)
+	assert.Equal(t, response.Version, "HTTP/1.1")
+	assert.Equal(t, response.StatusCode, 200)
+	assert.Equal(t, response.StatusCodeText, "OK")
+	assert.Equal(t, response.Headers["Content-Type"], "plain/text")
+	assert.Equal(t, response.Headers["Content-Length"], "17")
+	assert.Equal(t, response.Body, "the response body")
 }
 
 func TestRouteParams(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
 
-	defer func() {
-		client.Close()
-		server.Close()
-	}()
+	defer client.Close()
+	defer server.Close()
 
 	router.Get("/users/[userId]/department/[userDepartment]", func(protocol *HTTPProtocol, response *HTTPResponse) {
-		Assert(t, protocol.RouteParams["userId"], "77")
-		Assert(t, protocol.RouteParams["userDepartment"], "accounting")
+		assert.Equal(t, protocol.RouteParams["userId"], "77")
+		assert.Equal(t, protocol.RouteParams["userDepartment"], "accounting")
 		response.Close()
 	})
 
-	go (func() {
-		client.Write([]byte("GET /users/77/department/accounting HTTP/1.1\r\n\r\n"))
-	})()
-
-	go (func() {
-		router.connectionHandler(server)
-	})()
+	go client.Write([]byte("GET /users/77/department/accounting HTTP/1.1\r\n\r\n"))
+	go router.connectionHandler(server)
 
 	readConnectionResponse(client)
 }
@@ -169,10 +157,8 @@ func TestCustomHeaders(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
 
-	defer func() {
-		client.Close()
-		server.Close()
-	}()
+	defer client.Close()
+	defer server.Close()
 
 	router.Get("/", func(protocol *HTTPProtocol, response *HTTPResponse) {
 		response.SetHeader("Set-Cookie", "key=value; HttpOnly")
@@ -181,22 +167,18 @@ func TestCustomHeaders(t *testing.T) {
 		response.Send()
 	})
 
-	go (func() {
-		client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
-	})()
+	go client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
+	go router.connectionHandler(server)
 
-	go (func() {
-		router.connectionHandler(server)
-	})()
+	response, err := readHTTPResponse(client)
 
-	response, _ := readHTTPResponse(client)
-
-	Assert(t, response.Version, "HTTP/1.1")
-	Assert(t, response.StatusCode, 200)
-	Assert(t, response.StatusCodeText, "OK")
-	Assert(t, response.Headers["Content-Type"], "plain/text")
-	Assert(t, response.Headers["Content-Length"], "23")
-	Assert(t, response.Headers["Cache-Control"], "max-age=604800")
-	Assert(t, response.Headers["Set-Cookie"], "key=value; HttpOnly")
-	Assert(t, response.Body, "a rather expensive body")
+	assert.Nil(t, err)
+	assert.Equal(t, response.Version, "HTTP/1.1")
+	assert.Equal(t, response.StatusCode, 200)
+	assert.Equal(t, response.StatusCodeText, "OK")
+	assert.Equal(t, response.Headers["Content-Type"], "plain/text")
+	assert.Equal(t, response.Headers["Content-Length"], "23")
+	assert.Equal(t, response.Headers["Cache-Control"], "max-age=604800")
+	assert.Equal(t, response.Headers["Set-Cookie"], "key=value; HttpOnly")
+	assert.Equal(t, response.Body, "a rather expensive body")
 }
