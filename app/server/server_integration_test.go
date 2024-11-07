@@ -27,7 +27,7 @@ func readResponse(conn net.Conn) (string, error) {
 	return stringBuilder.String(), nil
 }
 
-func TestConnection(t *testing.T) {
+func TestBasicConnection(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
 
@@ -45,4 +45,25 @@ func TestConnection(t *testing.T) {
 
 	response, _ := readResponse(client)
 	Assert(t, strconv.Quote(response), strconv.Quote("HTTP/1.1 200 OK\r\n\r\n"))
+}
+
+func TestResponseBody(t *testing.T) {
+	client, server := net.Pipe()
+	router := Create()
+
+	router.Get("/", func(protocol *HTTPProtocol, response *HTTPResponse) {
+		response.Body("the response body")
+		response.Send()
+	})
+
+	go (func() {
+		client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
+	})()
+
+	go (func() {
+		router.connectionHandler(server)
+	})()
+
+	response, _ := readResponse(client)
+	Assert(t, strconv.Quote(response), strconv.Quote("HTTP/1.1 200 OK\r\nContent-Type: plain/text\r\nContent-Length: 17\r\n\r\nthe response body"))
 }
