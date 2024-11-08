@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -54,22 +55,24 @@ func readHTTPResponse(conn net.Conn) (*HTTPClientResponse, error) {
 		return nil, fmt.Errorf("Invalid http response format")
 	}
 
-	target := strings.Split(parts[0], " ")
+	r, _ := regexp.Compile(`(HTTP\/1\.1) (\d{3}) (.*)`)
 
-	if len(target) != 3 {
-		return nil, fmt.Errorf("Invalid http response format")
+	target := r.FindStringSubmatch(parts[0])
+
+	if len(target) != 4 {
+		return nil, fmt.Errorf("Invalid http target line")
 	}
 
-	statusCode, err := strconv.Atoi(target[1])
+	statusCode, err := strconv.Atoi(target[2])
 
 	if err != nil {
-		return nil, fmt.Errorf("Invalid http response format")
+		return nil, fmt.Errorf("Invalid http status code")
 	}
 
 	// Read HTTP target
-	httpResponse.Version = target[0]
+	httpResponse.Version = target[1]
 	httpResponse.StatusCode = statusCode
-	httpResponse.StatusCodeText = target[2]
+	httpResponse.StatusCodeText = target[3]
 
 	// Read HTTP headers
 	idx := 1
@@ -181,4 +184,34 @@ func TestCustomHeaders(t *testing.T) {
 	assert.Equal(t, response.Headers["Cache-Control"], "max-age=604800")
 	assert.Equal(t, response.Headers["Set-Cookie"], "key=value; HttpOnly")
 	assert.Equal(t, response.Body, "a rather expensive body")
+}
+
+func TestCatchAllRoutes(t *testing.T) {
+	client, server := net.Pipe()
+	router := Create()
+
+	defer client.Close()
+	defer server.Close()
+
+	router.Get("/", func(protocol *HTTPProtocol, response *HTTPResponse) {
+		response.Body("body message")
+		response.Send()
+	})
+
+	router.Get("/*", func(protocol *HTTPProtocol, response *HTTPResponse) {
+		response.StatusCode(HttpStatus.NotFound)
+		response.Body(fmt.Sprintf("%s not found.", protocol.Path))
+		response.Send()
+	})
+
+	go client.Write([]byte("GET /resource/6/details HTTP/1.1\r\n\r\n"))
+	go router.connectionHandler(server)
+
+	response, err := readHTTPResponse(client)
+
+	assert.Nil(t, err)
+	assert.Equal(t, response.Version, "HTTP/1.1")
+	assert.Equal(t, response.StatusCode, 404)
+	assert.Equal(t, response.StatusCodeText, "Not Found")
+	assert.Equal(t, response.Body, "/resource/6/details not found.")
 }

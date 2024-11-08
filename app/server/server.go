@@ -13,8 +13,8 @@ import (
 
 type HTTPProtocol struct {
 	version     string
-	path        string
 	method      string
+	Path        string
 	Headers     map[string][]string
 	RouteParams map[string]string
 	Body        string
@@ -107,7 +107,7 @@ func resolveConnection(conn net.Conn) (*HTTPProtocol, error) {
 
 	// Read HTTP target
 	protocol.method = target[0]
-	protocol.path = target[1]
+	protocol.Path = target[1]
 	protocol.version = target[2]
 
 	// Read HTTP headers
@@ -165,16 +165,16 @@ func (router *Router) connectionHandler(conn net.Conn) error {
 
 	if protocol.method == "GET" {
 		for _, route := range router.getRoutes {
-			if pathMatch(protocol.path, route.path) {
-				protocol.RouteParams = getRouteParams(protocol.path, route.path)
+			if pathMatch(protocol.Path, route.path) {
+				protocol.RouteParams = getRouteParams(protocol.Path, route.path)
 				route.handler(protocol, response)
 				return nil
 			}
 		}
 	} else if protocol.method == "POST" {
 		for _, route := range router.postRoutes {
-			if pathMatch(protocol.path, route.path) {
-				protocol.RouteParams = getRouteParams(protocol.path, route.path)
+			if pathMatch(protocol.Path, route.path) {
+				protocol.RouteParams = getRouteParams(protocol.Path, route.path)
 				route.handler(protocol, response)
 				return nil
 			}
