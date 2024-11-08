@@ -147,15 +147,16 @@ func (router *Router) Listen(address string) error {
 }
 
 func (router *Router) connectionHandler(conn net.Conn) error {
-	defer conn.Close()
-
 	protocol, err := resolveConnection(conn)
 
 	if err != nil {
+		conn.Close()
 		return err
 	}
 
 	response := &HTTPResponse{conn: conn, customHeaders: make(map[string]string)}
+
+	defer response.Close()
 
 	if _, ok := protocol.Headers["Accept-Encoding"]; ok {
 		if slices.Contains(protocol.Headers["Accept-Encoding"], "gzip") {
@@ -181,6 +182,7 @@ func (router *Router) connectionHandler(conn net.Conn) error {
 		}
 	}
 
+	response.StatusCode(404)
 	return nil
 }
 
