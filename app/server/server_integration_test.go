@@ -186,7 +186,7 @@ func TestCustomHeaders(t *testing.T) {
 	assert.Equal(t, response.Body, "a rather expensive body")
 }
 
-func TestCatchAllRoutes(t *testing.T) {
+func TestWildcardRoutes(t *testing.T) {
 	client, server := net.Pipe()
 	router := Create()
 
@@ -214,4 +214,28 @@ func TestCatchAllRoutes(t *testing.T) {
 	assert.Equal(t, response.StatusCode, 404)
 	assert.Equal(t, response.StatusCodeText, "Not Found")
 	assert.Equal(t, response.Body, "/resource/6/details not found.")
+}
+
+func TestPostRequest(t *testing.T) {
+	client, server := net.Pipe()
+	router := Create()
+
+	defer client.Close()
+	defer server.Close()
+
+	router.Post("/user", func(protocol *HTTPProtocol, response *HTTPResponse) {
+		assert.Equal(t, "{\"email\": \"name@email.com\", \"password\": 123456}", protocol.Body)
+		response.StatusCode(HttpStatus.Created)
+		response.Send()
+	})
+
+	go client.Write([]byte("POST /user HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 47\r\n\r\n{\"email\": \"name@email.com\", \"password\": 123456}"))
+	go router.connectionHandler(server)
+
+	response, err := readHTTPResponse(client)
+
+	assert.Nil(t, err)
+	assert.Equal(t, response.Version, "HTTP/1.1")
+	assert.Equal(t, response.StatusCode, 201)
+	assert.Equal(t, response.StatusCodeText, "Created")
 }
