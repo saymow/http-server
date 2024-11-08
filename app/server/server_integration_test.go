@@ -239,3 +239,28 @@ func TestPostRequest(t *testing.T) {
 	assert.Equal(t, response.StatusCode, 201)
 	assert.Equal(t, response.StatusCodeText, "Created")
 }
+
+func TestCompressedResponse(t *testing.T) {
+	client, server := net.Pipe()
+	router := Create()
+
+	defer client.Close()
+	defer server.Close()
+
+	router.Get("/user", func(protocol *HTTPProtocol, response *HTTPResponse) {
+		response.Body("{\"email\": \"name@email.com\", \"password\": 123456}")
+		response.Send()
+	})
+
+	go client.Write([]byte("GET /user HTTP/1.1\r\nAccept-Encoding: gzip\r\n\r\n"))
+	go router.connectionHandler(server)
+
+	response, err := readHTTPResponse(client)
+
+	assert.Nil(t, err)
+	assert.Equal(t, response.Version, "HTTP/1.1")
+	assert.Equal(t, response.StatusCode, 200)
+	assert.Equal(t, response.StatusCodeText, "OK")
+	assert.Equal(t, response.Headers["Content-Encoding"], "gzip")
+	assert.NotEqual(t, response.Body, "{\"email\": \"name@email.com\", \"password\": 123456}")
+}
